@@ -1,0 +1,11 @@
+# Compiled binary
+agent-example
+
+# Runtime generated state files
+*.state
+
+# Build artifacts
+*.o
+*.a
+*.so
+*.dylib
