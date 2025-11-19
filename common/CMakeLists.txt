@@ -170,3 +170,6 @@ if (DEFINED ENV{GITHUB_ACTIONS} AND "$ENV{GITHUB_ACTIONS}" STREQUAL "true")
         message(STATUS "Copying ${LICENSE_FILE} to ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${FILENAME}")
     endforeach()
 endif()
+
+# Agent collaboration framework
+add_subdirectory(agent)
