@@ -12,6 +12,7 @@ This package provides ctypes-based Python bindings for the llama.cpp inference l
 - **Pythonic interface**: High-level classes wrapping the C API
 - **Multi-provider agents**: Unified interface for OpenAI, Anthropic, Google, Moonshot, and local Llama
 - **Function calling**: Support for function calling / tool use across all providers
+- **Hierarchical agent trees**: Organize agents in tree structures with shared context and communication ([docs](HIERARCHICAL_AGENTS.md))
 - **Pattern consistency**: Follows the established `gguf-py` pattern
 - **Minimal dependencies**: Core library uses only Python standard library
 
@@ -199,6 +200,71 @@ if tool_calls:
 ```
 
 See `examples/multi_provider_agents.py` for complete examples with all providers.
+
+### Hierarchical Agent Trees
+
+Organize agents in tree structures with parent-child relationships, shared context, and inter-agent communication.
+
+```python
+from llama_cpp.agents import HierarchicalAgent, SharedContext, ContextScope, OpenAIAgent, AnthropicAgent
+
+# Create shared context
+context = SharedContext()
+
+# Create root agent (coordinator)
+coordinator = HierarchicalAgent(
+    agent_id="coordinator",
+    provider=OpenAIAgent(model="gpt-4-turbo", api_key=os.getenv("OPENAI_API_KEY")),
+    context=context
+)
+
+# Add child agents
+researcher = coordinator.add_child(
+    agent_id="researcher",
+    provider=AnthropicAgent(model="claude-3-opus", api_key=os.getenv("ANTHROPIC_API_KEY"))
+)
+
+analyst = coordinator.add_child(
+    agent_id="analyst",
+    provider=GoogleAgent(model="gemini-1.5-pro", api_key=os.getenv("GOOGLE_API_KEY"))
+)
+
+# Set shared context (visible to entire subtree)
+coordinator.set_context("project", "AI Research", scope=ContextScope.SUBTREE)
+
+# Children can access parent's context
+project = researcher.get_context("project")  # "AI Research"
+
+# Delegate task to child
+result = coordinator.delegate_to_child(
+    child_id="researcher",
+    task_description="Research hierarchical agent architectures",
+    max_tokens=300
+)
+
+# Aggregate results from all children
+summary = coordinator.aggregate_from_children(
+    task_description="What are the key benefits of hierarchical agents?",
+    aggregation_prompt="Synthesize all responses into a coherent summary"
+)
+
+# Message passing
+researcher.send_to_parent("status", "Research completed")
+coordinator.broadcast_to_children("announcement", "Great work team!")
+
+# View tree structure
+print(coordinator.get_tree_view())
+```
+
+**Key Features:**
+
+- **Context Scoping**: Control visibility (LOCAL, CHILDREN, SUBTREE, GLOBAL)
+- **Message Passing**: Send messages between agents, broadcast to children/subtree
+- **Task Delegation**: Assign work to specific children
+- **Result Aggregation**: Collect and synthesize results from multiple agents
+- **Multi-Level Trees**: Unlimited depth, different providers at each level
+
+See [HIERARCHICAL_AGENTS.md](HIERARCHICAL_AGENTS.md) for complete documentation and [examples/hierarchical_agent_tree.py](examples/hierarchical_agent_tree.py) for examples.
 
 ## Architecture
 

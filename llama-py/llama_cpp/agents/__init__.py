@@ -11,6 +11,11 @@ Supported providers:
 - GoogleAgent: Google Gemini models (1.5 Pro, 1.5 Flash, 2.0)
 - MoonshotAgent: Moonshot Kimi models
 
+Hierarchical agent support:
+- HierarchicalAgent: Organize agents in a tree structure
+- SharedContext: Shared context and message passing
+- ContextScope: Define context visibility scope
+
 Example:
     >>> from llama_cpp.agents import OpenAIAgent, Tool
     >>>
@@ -31,9 +36,11 @@ Example:
     >>> agent = OpenAIAgent(model="gpt-4-turbo", api_key="sk-...")
     >>> response = agent.chat("What's the weather in Tokyo?", tools=[weather_tool])
     >>>
-    >>> # Or use with Claude
-    >>> agent = AnthropicAgent(model="claude-3-opus-20240229", api_key="sk-ant-...")
-    >>> response = agent.chat("What's the weather in Tokyo?", tools=[weather_tool])
+    >>> # Or use hierarchical agents
+    >>> from llama_cpp.agents import HierarchicalAgent, SharedContext
+    >>> context = SharedContext()
+    >>> root = HierarchicalAgent("root", OpenAIAgent(...), context)
+    >>> child = root.add_child("child", AnthropicAgent(...))
 """
 
 from .base import BaseAgent, Tool, Message
@@ -42,14 +49,25 @@ from .openai import OpenAIAgent
 from .anthropic import AnthropicAgent
 from .google import GoogleAgent
 from .moonshot import MoonshotAgent
+from .context import SharedContext, ContextScope, AgentMessage, ContextEntry
+from .hierarchical import HierarchicalAgent, AgentTask
 
 __all__ = [
+    # Base classes
     "BaseAgent",
     "Tool",
     "Message",
+    # Provider agents
     "LlamaAgent",
     "OpenAIAgent",
     "AnthropicAgent",
     "GoogleAgent",
     "MoonshotAgent",
+    # Hierarchical agents
+    "HierarchicalAgent",
+    "SharedContext",
+    "ContextScope",
+    "AgentMessage",
+    "ContextEntry",
+    "AgentTask",
 ]
