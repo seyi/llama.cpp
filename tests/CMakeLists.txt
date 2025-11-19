@@ -226,3 +226,10 @@ target_link_libraries(${TEST_TARGET} PRIVATE llama)
 
 llama_build_and_test(test-alloc.cpp)
 target_include_directories(test-alloc PRIVATE ${PROJECT_SOURCE_DIR}/ggml/src)
+
+
+# Agent collaboration framework tests
+add_executable(test-agent-collaboration test-agent-collaboration.cpp)
+target_link_libraries(test-agent-collaboration PRIVATE llama-agent)
+add_test(NAME test-agent-collaboration COMMAND test-agent-collaboration)
+set_property(TEST test-agent-collaboration PROPERTY LABELS "agent")
