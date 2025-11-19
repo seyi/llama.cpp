@@ -1,8 +1,10 @@
-# Compiled binary
+# Compiled binaries
 agent-example
+test-agent-context
 
-# Runtime generated state files
+# Runtime generated files
 *.state
+*.bin
 
 # Build artifacts
 *.o

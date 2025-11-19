@@ -125,14 +125,80 @@ int main() {
 
 ## Building
 
-To compile the example:
+### Using Make (Recommended)
 
 ```bash
-# Using g++
+# Build everything (example + tests)
+make
+
+# Build only the example
+make example
+
+# Build only the tests
+make test
+
+# Clean build artifacts
+make clean
+```
+
+### Manual Compilation
+
+```bash
+# Build the example
 g++ -std=c++17 -I../../include agent-example.cpp -o agent-example
+
+# Build the tests
+g++ -std=c++17 -I../../include test-agent-context.cpp -o test-agent-context
 
 # Using CMake (if integrated)
 cmake --build . --target agent-example
+```
+
+## Testing
+
+The project includes a comprehensive test suite that validates all components:
+
+### Running Tests
+
+```bash
+# Using Make
+make test
+
+# Or run directly
+./test-agent-context
+```
+
+### Test Coverage
+
+The test suite includes 18 test cases covering:
+
+- **Configuration**: Default parameters, custom settings
+- **Context Management**: Initialization, cleanup, timing
+- **Memory Operations**: Store, retrieve, overflow handling, persistence
+- **Tool System**: Registration, execution, error handling
+- **Task Execution**: Basic execution, iteration limits, metrics
+- **State Persistence**: Save/load functionality
+- **Callbacks**: Progress, tool call, and error callbacks
+- **Edge Cases**: Null handling, buffer limits, tool failures
+
+All tests use assertions and will exit with error codes on failure.
+
+### Example Test Output
+
+```
+====================================
+Agent Context Management Test Suite
+====================================
+
+Running default_params... PASSED
+Running context_initialization... PASSED
+Running memory_store_and_retrieve... PASSED
+...
+Running custom_memory_window_size... PASSED
+
+====================================
+All tests PASSED!
+====================================
 ```
 
 ## Design Principles
