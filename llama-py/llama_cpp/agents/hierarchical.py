@@ -13,6 +13,16 @@ import uuid
 from .base import BaseAgent, Tool
 from .context import SharedContext, ContextScope, AgentMessage
 
+# Import A2A protocol types
+try:
+    from .a2a import (
+        A2AMessage, Task, TaskState, Artifact, AgentCard,
+        AgentSkill, AgentCapabilities, TextPart, DataPart
+    )
+    A2A_AVAILABLE = True
+except ImportError:
+    A2A_AVAILABLE = False
+
 
 @dataclass
 class AgentTask:
@@ -428,3 +438,265 @@ class HierarchicalAgent(BaseAgent):
             self.context.unregister_agent(self.agent_id)
         except:
             pass
+
+    # ========================================================================
+    # A2A Protocol Methods
+    # ========================================================================
+
+    def create_a2a_task(
+        self,
+        user_message: str,
+        contextId: Optional[str] = None
+    ) -> Optional[Task]:
+        """
+        Create a new A2A Task for this agent
+
+        Args:
+            user_message: Initial user message
+            contextId: Optional context ID to group related tasks
+
+        Returns:
+            Created Task or None if A2A is not available
+        """
+        if not A2A_AVAILABLE or not self.context._enable_a2a:
+            return None
+
+        # Create initial A2A message
+        initial_message = A2AMessage.from_text(
+            text=user_message,
+            role="user",
+            contextId=contextId
+        )
+
+        # Create task via context
+        task = self.context.create_a2a_task(
+            agent_id=self.agent_id,
+            initial_message=initial_message,
+            contextId=contextId
+        )
+
+        return task
+
+    def send_a2a_message(
+        self,
+        receiver_id: str,
+        message_text: str,
+        contextId: Optional[str] = None,
+        taskId: Optional[str] = None,
+        parts: Optional[List[Any]] = None
+    ) -> Optional[A2AMessage]:
+        """
+        Send an A2A protocol message to another agent
+
+        Args:
+            receiver_id: Target agent ID
+            message_text: Message text content
+            contextId: Context ID for grouping related interactions
+            taskId: Task ID if part of a task
+            parts: Additional message parts (beyond text)
+
+        Returns:
+            Sent A2AMessage or None if A2A is not available
+        """
+        if not A2A_AVAILABLE or not self.context._enable_a2a:
+            return None
+
+        # Build parts list
+        message_parts = [TextPart(text=message_text)]
+        if parts:
+            message_parts.extend(parts)
+
+        # Create A2A message
+        message = A2AMessage(
+            role="agent",
+            parts=message_parts,
+            contextId=contextId,
+            taskId=taskId
+        )
+
+        # Send via context
+        self.context.send_a2a_message(
+            sender_id=self.agent_id,
+            receiver_id=receiver_id,
+            message=message
+        )
+
+        return message
+
+    def delegate_a2a_task(
+        self,
+        child_id: str,
+        task_description: str,
+        contextId: Optional[str] = None,
+        tools: Optional[List[Tool]] = None,
+        **kwargs
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Delegate a task to a child using A2A protocol
+
+        Args:
+            child_id: ID of child agent
+            task_description: Description of the task
+            contextId: Context ID for grouping
+            tools: Tools available for the task
+            **kwargs: Additional chat parameters
+
+        Returns:
+            Response dict with task and result, or None if A2A unavailable
+        """
+        if not A2A_AVAILABLE or not self.context._enable_a2a:
+            # Fall back to legacy delegation
+            return self.delegate_to_child(child_id, task_description, tools, **kwargs)
+
+        if child_id not in self.children:
+            raise ValueError(f"Child agent '{child_id}' not found")
+
+        child = self.children[child_id]
+
+        # Create A2A task
+        task = child.create_a2a_task(
+            user_message=task_description,
+            contextId=contextId
+        )
+
+        if not task:
+            return None
+
+        # Update task to in-progress
+        self.context.update_a2a_task(
+            task_id=task.id,
+            state=TaskState.IN_PROGRESS,
+            message="Processing task"
+        )
+
+        # Execute task on child
+        try:
+            response = child.chat(
+                message=task_description,
+                tools=tools,
+                **kwargs
+            )
+
+            # Extract content from response
+            content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
+
+            # Create artifact from result
+            artifact = Artifact.from_text(
+                text=content,
+                name=f"result_{task.id[:8]}",
+                description="Task execution result"
+            )
+
+            # Update task with result
+            self.context.update_a2a_task(
+                task_id=task.id,
+                state=TaskState.COMPLETED,
+                message="Task completed successfully",
+                artifact=artifact
+            )
+
+            # Add agent response to task history
+            agent_message = A2AMessage.from_text(
+                text=content,
+                role="agent",
+                contextId=task.contextId,
+                taskId=task.id
+            )
+            self.context.add_a2a_message_to_task(task.id, agent_message)
+
+            return {
+                "task": task.to_dict(),
+                "response": response,
+                "artifact": artifact.to_dict()
+            }
+
+        except Exception as e:
+            # Mark task as failed
+            self.context.update_a2a_task(
+                task_id=task.id,
+                state=TaskState.FAILED,
+                message=f"Task failed: {str(e)}"
+            )
+
+            return {
+                "task": task.to_dict(),
+                "error": str(e)
+            }
+
+    def get_agent_card(
+        self,
+        url: str = "http://localhost:8000",
+        version: str = "1.0.0"
+    ) -> Optional[AgentCard]:
+        """
+        Generate an A2A Agent Card for this agent
+
+        Args:
+            url: Agent's endpoint URL
+            version: Agent version
+
+        Returns:
+            AgentCard or None if A2A is not available
+        """
+        if not A2A_AVAILABLE:
+            return None
+
+        # Define agent skills based on metadata and capabilities
+        skills = []
+
+        # Add default skill for hierarchical coordination
+        if not self.parent:  # Root agent
+            skills.append(AgentSkill(
+                name="task_coordination",
+                description="Coordinate tasks across multiple specialized agents",
+                tags=["coordination", "delegation", "hierarchical"],
+                inputModes=["text/plain"],
+                outputModes=["text/plain", "application/json"]
+            ))
+
+        # Add skill for specialized work if not root
+        agent_role = self.metadata.get("role", self.agent_id)
+        skills.append(AgentSkill(
+            name=f"{agent_role}_tasks",
+            description=f"Perform {agent_role} related tasks",
+            tags=[agent_role, "specialized"],
+            inputModes=["text/plain"],
+            outputModes=["text/plain"]
+        ))
+
+        # Create agent card
+        card = AgentCard(
+            name=f"{agent_role.title()} Agent",
+            description=f"Hierarchical agent specialized in {agent_role}. "
+                       f"Provider: {self.provider.__class__.__name__}, Model: {self.model}",
+            url=url,
+            version=version,
+            skills=skills,
+            capabilities=AgentCapabilities(
+                streaming=False,
+                pushNotifications=False,
+                stateTransitionHistory=True
+            ),
+            defaultInputModes=["text/plain", "application/json"],
+            defaultOutputModes=["text/plain", "application/json"]
+        )
+
+        return card
+
+    def export_agent_card_json(
+        self,
+        url: str = "http://localhost:8000",
+        version: str = "1.0.0"
+    ) -> Optional[str]:
+        """
+        Export agent card as JSON string
+
+        Args:
+            url: Agent endpoint URL
+            version: Agent version
+
+        Returns:
+            JSON string or None if A2A is not available
+        """
+        card = self.get_agent_card(url, version)
+        return card.to_json() if card else None

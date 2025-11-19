@@ -3,6 +3,9 @@ Shared context management for hierarchical agent trees.
 
 This module provides a context management system that allows agents in a tree
 structure to share state, communicate, and coordinate their work.
+
+Enhanced with A2A (Agent-to-Agent) Protocol support for standardized
+inter-agent communication and task lifecycle management.
 """
 
 from typing import Any, Dict, List, Optional, Set
@@ -11,6 +14,17 @@ from datetime import datetime
 from enum import Enum
 import threading
 import json
+import uuid
+
+# Import A2A protocol types
+try:
+    from .a2a import (
+        A2AMessage, Task, TaskState, TaskStatus, Artifact,
+        create_task, Part, TextPart
+    )
+    A2A_AVAILABLE = True
+except ImportError:
+    A2A_AVAILABLE = False
 
 
 class ContextScope(Enum):
@@ -73,16 +87,30 @@ class SharedContext:
 
     Provides:
     - Key-value storage with scoping
-    - Message passing between agents
+    - Message passing between agents (legacy and A2A protocol)
+    - A2A task lifecycle management
     - Event notifications
     - Thread-safe operations
     """
 
-    def __init__(self):
+    def __init__(self, enable_a2a: bool = True):
+        """
+        Initialize SharedContext
+
+        Args:
+            enable_a2a: Enable A2A protocol support for tasks and messages
+        """
         self._context: Dict[str, ContextEntry] = {}
         self._messages: List[AgentMessage] = []
         self._agent_registry: Dict[str, Dict[str, Any]] = {}
         self._lock = threading.RLock()
+
+        # A2A Protocol support
+        self._enable_a2a = enable_a2a and A2A_AVAILABLE
+        if self._enable_a2a:
+            self._tasks: Dict[str, Task] = {}  # taskId -> Task
+            self._context_tasks: Dict[str, List[str]] = {}  # contextId -> [taskId]
+            self._a2a_messages: Dict[str, List[A2AMessage]] = {}  # contextId -> messages
 
     def register_agent(
         self,
@@ -352,3 +380,171 @@ class SharedContext:
                     scope=ContextScope(entry_dict["scope"]),
                     metadata=entry_dict.get("metadata"),
                 )
+
+    # ========================================================================
+    # A2A Protocol Methods
+    # ========================================================================
+
+    def create_a2a_task(
+        self,
+        agent_id: str,
+        initial_message: Optional[A2AMessage] = None,
+        contextId: Optional[str] = None
+    ) -> Optional[Task]:
+        """
+        Create a new A2A Task for an agent
+
+        Args:
+            agent_id: Agent creating the task
+            initial_message: Initial message to add to task history
+            contextId: Context ID to group related tasks
+
+        Returns:
+            Created Task or None if A2A is not enabled
+        """
+        if not self._enable_a2a:
+            return None
+
+        with self._lock:
+            task = create_task(contextId=contextId, initial_message=initial_message)
+
+            # Store task
+            self._tasks[task.id] = task
+
+            # Track task by contextId
+            if task.contextId not in self._context_tasks:
+                self._context_tasks[task.contextId] = []
+            self._context_tasks[task.contextId].append(task.id)
+
+            # Store initial message in context messages
+            if initial_message:
+                if task.contextId not in self._a2a_messages:
+                    self._a2a_messages[task.contextId] = []
+                self._a2a_messages[task.contextId].append(initial_message)
+
+            return task
+
+    def get_a2a_task(self, task_id: str) -> Optional[Task]:
+        """Get an A2A task by ID"""
+        if not self._enable_a2a:
+            return None
+
+        with self._lock:
+            return self._tasks.get(task_id)
+
+    def update_a2a_task(
+        self,
+        task_id: str,
+        state: Optional[TaskState] = None,
+        message: Optional[str] = None,
+        artifact: Optional[Artifact] = None
+    ) -> bool:
+        """
+        Update an A2A task's status or add artifacts
+
+        Args:
+            task_id: Task ID to update
+            state: New task state
+            message: Status message
+            artifact: Artifact to add
+
+        Returns:
+            True if updated successfully
+        """
+        if not self._enable_a2a:
+            return False
+
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if not task:
+                return False
+
+            if state:
+                task.update_status(state, message)
+
+            if artifact:
+                task.add_artifact(artifact)
+
+            return True
+
+    def add_a2a_message_to_task(
+        self,
+        task_id: str,
+        message: A2AMessage
+    ) -> bool:
+        """
+        Add a message to a task's history
+
+        Args:
+            task_id: Task ID
+            message: A2A message to add
+
+        Returns:
+            True if added successfully
+        """
+        if not self._enable_a2a:
+            return False
+
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if not task:
+                return False
+
+            task.add_message(message)
+
+            # Also track in context messages
+            if task.contextId not in self._a2a_messages:
+                self._a2a_messages[task.contextId] = []
+            self._a2a_messages[task.contextId].append(message)
+
+            return True
+
+    def get_tasks_by_context(self, contextId: str) -> List[Task]:
+        """Get all tasks for a given context ID"""
+        if not self._enable_a2a:
+            return []
+
+        with self._lock:
+            task_ids = self._context_tasks.get(contextId, [])
+            return [self._tasks[tid] for tid in task_ids if tid in self._tasks]
+
+    def get_a2a_messages_by_context(self, contextId: str) -> List[A2AMessage]:
+        """Get all A2A messages for a given context ID"""
+        if not self._enable_a2a:
+            return []
+
+        with self._lock:
+            return self._a2a_messages.get(contextId, []).copy()
+
+    def send_a2a_message(
+        self,
+        sender_id: str,
+        receiver_id: str,
+        message: A2AMessage
+    ):
+        """
+        Send an A2A message from one agent to another
+
+        Args:
+            sender_id: Sending agent ID
+            receiver_id: Receiving agent ID
+            message: A2A message to send
+        """
+        if not self._enable_a2a:
+            return
+
+        with self._lock:
+            # Store in context messages if contextId is set
+            if message.contextId:
+                if message.contextId not in self._a2a_messages:
+                    self._a2a_messages[message.contextId] = []
+                self._a2a_messages[message.contextId].append(message)
+
+            # Also create a legacy message for compatibility
+            self.send_message(
+                sender_id=sender_id,
+                receiver_id=receiver_id,
+                message_type="a2a_message",
+                content=message.to_dict(),
+                metadata={"a2a": True}
+            )

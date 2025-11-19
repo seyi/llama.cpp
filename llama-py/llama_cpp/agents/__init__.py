@@ -52,6 +52,23 @@ from .moonshot import MoonshotAgent
 from .context import SharedContext, ContextScope, AgentMessage, ContextEntry
 from .hierarchical import HierarchicalAgent, AgentTask
 
+# A2A Protocol support (optional)
+try:
+    from .a2a import (
+        A2AMessage, Task, TaskState, TaskStatus, Artifact,
+        AgentCard, AgentSkill, AgentCapabilities,
+        TextPart, FilePart, DataPart, PartKind,
+        create_task, parse_message
+    )
+    _a2a_exports = [
+        "A2AMessage", "Task", "TaskState", "TaskStatus", "Artifact",
+        "AgentCard", "AgentSkill", "AgentCapabilities",
+        "TextPart", "FilePart", "DataPart", "PartKind",
+        "create_task", "parse_message",
+    ]
+except ImportError:
+    _a2a_exports = []
+
 __all__ = [
     # Base classes
     "BaseAgent",
@@ -70,4 +87,4 @@ __all__ = [
     "AgentMessage",
     "ContextEntry",
     "AgentTask",
-]
+] + _a2a_exports

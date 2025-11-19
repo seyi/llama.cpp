@@ -1,0 +1,481 @@
+"""
+Agent-to-Agent (A2A) Protocol Implementation
+
+This module implements the A2A protocol data structures and utilities
+for enabling standardized communication between AI agents.
+
+A2A Protocol: https://a2a-protocol.org
+Specification: https://github.com/a2aproject/A2A
+"""
+
+from typing import List, Dict, Any, Optional, Union, Literal
+from dataclasses import dataclass, field, asdict
+from datetime import datetime
+from enum import Enum
+import uuid
+import json
+
+
+class TaskState(Enum):
+    """A2A Task states"""
+    PENDING = "pending"
+    IN_PROGRESS = "in-progress"
+    INPUT_REQUIRED = "input-required"
+    AUTH_REQUIRED = "auth-required"
+    COMPLETED = "completed"
+    CANCELED = "canceled"
+    REJECTED = "rejected"
+    FAILED = "failed"
+
+    def is_terminal(self) -> bool:
+        """Check if this state is terminal (immutable)"""
+        return self in {
+            TaskState.COMPLETED,
+            TaskState.CANCELED,
+            TaskState.REJECTED,
+            TaskState.FAILED
+        }
+
+    def is_interrupted(self) -> bool:
+        """Check if this state is interrupted (requires action)"""
+        return self in {TaskState.INPUT_REQUIRED, TaskState.AUTH_REQUIRED}
+
+
+class PartKind(Enum):
+    """A2A Part kinds"""
+    TEXT = "text"
+    FILE = "file"
+    DATA = "data"
+
+
+# ============================================================================
+# A2A Protocol Data Structures
+# ============================================================================
+
+@dataclass
+class TextPart:
+    """A text content part"""
+    kind: Literal["text"] = "text"
+    text: str = ""
+    metadata: Optional[Dict[str, Any]] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        result = {"kind": self.kind, "text": self.text}
+        if self.metadata:
+            result["metadata"] = self.metadata
+        return result
+
+
+@dataclass
+class FilePart:
+    """A file content part"""
+    kind: Literal["file"] = "file"
+    file: Dict[str, Any] = field(default_factory=dict)
+    metadata: Optional[Dict[str, Any]] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        result = {"kind": self.kind, "file": self.file}
+        if self.metadata:
+            result["metadata"] = self.metadata
+        return result
+
+    @staticmethod
+    def from_bytes(
+        data: bytes,
+        name: str,
+        mime_type: str = "application/octet-stream"
+    ) -> "FilePart":
+        """Create FilePart from bytes (base64 encoded)"""
+        import base64
+        return FilePart(file={
+            "name": name,
+            "mimeType": mime_type,
+            "bytes": base64.b64encode(data).decode('utf-8')
+        })
+
+    @staticmethod
+    def from_uri(uri: str, name: str, mime_type: str) -> "FilePart":
+        """Create FilePart from URI"""
+        return FilePart(file={
+            "name": name,
+            "mimeType": mime_type,
+            "uri": uri
+        })
+
+
+@dataclass
+class DataPart:
+    """A structured data part"""
+    kind: Literal["data"] = "data"
+    data: Dict[str, Any] = field(default_factory=dict)
+    metadata: Optional[Dict[str, Any]] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        result = {"kind": self.kind, "data": self.data}
+        if self.metadata:
+            result["metadata"] = self.metadata
+        return result
+
+
+# Type alias for Part union
+Part = Union[TextPart, FilePart, DataPart]
+
+
+@dataclass
+class A2AMessage:
+    """
+    A2A Protocol Message
+
+    Represents a single turn of communication between client and agent.
+    """
+    role: Literal["user", "agent"]
+    parts: List[Part]
+    messageId: str = field(default_factory=lambda: str(uuid.uuid4()))
+    kind: Literal["message"] = "message"
+    contextId: Optional[str] = None
+    taskId: Optional[str] = None
+    referenceTaskIds: Optional[List[str]] = None
+    extensions: Optional[List[str]] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to A2A JSON format"""
+        result = {
+            "role": self.role,
+            "messageId": self.messageId,
+            "kind": self.kind,
+            "parts": [p.to_dict() for p in self.parts]
+        }
+
+        if self.contextId:
+            result["contextId"] = self.contextId
+        if self.taskId:
+            result["taskId"] = self.taskId
+        if self.referenceTaskIds:
+            result["referenceTaskIds"] = self.referenceTaskIds
+        if self.extensions:
+            result["extensions"] = self.extensions
+        if self.metadata:
+            result["metadata"] = self.metadata
+
+        return result
+
+    @staticmethod
+    def from_text(
+        text: str,
+        role: Literal["user", "agent"] = "user",
+        **kwargs
+    ) -> "A2AMessage":
+        """Create a message with a single text part"""
+        return A2AMessage(
+            role=role,
+            parts=[TextPart(text=text)],
+            **kwargs
+        )
+
+
+@dataclass
+class Artifact:
+    """
+    A2A Artifact
+
+    Represents a tangible output generated by an agent during task processing.
+    """
+    artifactId: str
+    parts: List[Part]
+    name: Optional[str] = None
+    description: Optional[str] = None
+    extensions: Optional[List[str]] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to A2A JSON format"""
+        result = {
+            "artifactId": self.artifactId,
+            "parts": [p.to_dict() for p in self.parts]
+        }
+
+        if self.name:
+            result["name"] = self.name
+        if self.description:
+            result["description"] = self.description
+        if self.extensions:
+            result["extensions"] = self.extensions
+        if self.metadata:
+            result["metadata"] = self.metadata
+
+        return result
+
+    @staticmethod
+    def from_text(
+        text: str,
+        name: Optional[str] = None,
+        description: Optional[str] = None
+    ) -> "Artifact":
+        """Create artifact from text"""
+        return Artifact(
+            artifactId=str(uuid.uuid4()),
+            parts=[TextPart(text=text)],
+            name=name,
+            description=description
+        )
+
+
+@dataclass
+class TaskStatus:
+    """A2A Task Status"""
+    state: TaskState
+    message: Optional[str] = None
+    stateTransitions: Optional[List[Dict[str, Any]]] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to A2A JSON format"""
+        result = {"state": self.state.value}
+        if self.message:
+            result["message"] = self.message
+        if self.stateTransitions:
+            result["stateTransitions"] = self.stateTransitions
+        return result
+
+
+@dataclass
+class Task:
+    """
+    A2A Task
+
+    Represents a stateful unit of work with a defined lifecycle.
+    """
+    id: str
+    contextId: str
+    status: TaskStatus
+    kind: Literal["task"] = "task"
+    history: Optional[List[A2AMessage]] = None
+    artifacts: Optional[List[Artifact]] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to A2A JSON format"""
+        result = {
+            "id": self.id,
+            "contextId": self.contextId,
+            "status": self.status.to_dict(),
+            "kind": self.kind
+        }
+
+        if self.history:
+            result["history"] = [m.to_dict() for m in self.history]
+        if self.artifacts:
+            result["artifacts"] = [a.to_dict() for a in self.artifacts]
+        if self.metadata:
+            result["metadata"] = self.metadata
+
+        return result
+
+    def is_terminal(self) -> bool:
+        """Check if task is in a terminal state"""
+        return self.status.state.is_terminal()
+
+    def is_interrupted(self) -> bool:
+        """Check if task is in an interrupted state"""
+        return self.status.state.is_interrupted()
+
+    def add_message(self, message: A2AMessage):
+        """Add a message to task history"""
+        if self.history is None:
+            self.history = []
+        self.history.append(message)
+
+    def add_artifact(self, artifact: Artifact):
+        """Add an artifact to task"""
+        if self.artifacts is None:
+            self.artifacts = []
+        self.artifacts.append(artifact)
+
+    def update_status(
+        self,
+        state: TaskState,
+        message: Optional[str] = None,
+        track_transitions: bool = True
+    ):
+        """Update task status and optionally track state transitions"""
+        if track_transitions:
+            if self.status.stateTransitions is None:
+                self.status.stateTransitions = []
+
+            self.status.stateTransitions.append({
+                "from": self.status.state.value,
+                "to": state.value,
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "message": message
+            })
+
+        self.status.state = state
+        if message:
+            self.status.message = message
+
+
+@dataclass
+class AgentSkill:
+    """A2A Agent Skill definition"""
+    name: str
+    description: str
+    tags: Optional[List[str]] = None
+    examples: Optional[List[str]] = None
+    inputModes: Optional[List[str]] = None
+    outputModes: Optional[List[str]] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        result = {
+            "name": self.name,
+            "description": self.description
+        }
+        if self.tags:
+            result["tags"] = self.tags
+        if self.examples:
+            result["examples"] = self.examples
+        if self.inputModes:
+            result["inputModes"] = self.inputModes
+        if self.outputModes:
+            result["outputModes"] = self.outputModes
+        return result
+
+
+@dataclass
+class AgentCapabilities:
+    """A2A Agent Capabilities"""
+    streaming: bool = False
+    pushNotifications: bool = False
+    stateTransitionHistory: bool = True
+    extensions: Optional[List[Dict[str, Any]]] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        result = {
+            "streaming": self.streaming,
+            "pushNotifications": self.pushNotifications,
+            "stateTransitionHistory": self.stateTransitionHistory
+        }
+        if self.extensions:
+            result["extensions"] = self.extensions
+        return result
+
+
+@dataclass
+class AgentCard:
+    """
+    A2A Agent Card
+
+    A self-describing manifest for an agent providing metadata about
+    its identity, capabilities, skills, and security requirements.
+    """
+    name: str
+    description: str
+    url: str
+    version: str
+    protocolVersion: str = "0.3.0"
+    skills: List[AgentSkill] = field(default_factory=list)
+    capabilities: AgentCapabilities = field(default_factory=AgentCapabilities)
+    defaultInputModes: List[str] = field(default_factory=lambda: ["text/plain"])
+    defaultOutputModes: List[str] = field(default_factory=lambda: ["text/plain"])
+    preferredTransport: str = "JSONRPC"
+    iconUrl: Optional[str] = None
+    documentationUrl: Optional[str] = None
+    provider: Optional[Dict[str, Any]] = None
+    securitySchemes: Optional[Dict[str, Any]] = None
+    security: Optional[List[Dict[str, List[str]]]] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to A2A Agent Card JSON format"""
+        return {
+            "name": self.name,
+            "description": self.description,
+            "url": self.url,
+            "version": self.version,
+            "protocolVersion": self.protocolVersion,
+            "skills": [s.to_dict() for s in self.skills],
+            "capabilities": self.capabilities.to_dict(),
+            "defaultInputModes": self.defaultInputModes,
+            "defaultOutputModes": self.defaultOutputModes,
+            "preferredTransport": self.preferredTransport,
+            **({
+                "iconUrl": self.iconUrl,
+                "documentationUrl": self.documentationUrl,
+                "provider": self.provider,
+                "securitySchemes": self.securitySchemes,
+                "security": self.security,
+            } if any([
+                self.iconUrl, self.documentationUrl, self.provider,
+                self.securitySchemes, self.security
+            ]) else {})
+        }
+
+    def to_json(self, indent: int = 2) -> str:
+        """Convert to JSON string"""
+        return json.dumps(self.to_dict(), indent=indent)
+
+
+# ============================================================================
+# Utility Functions
+# ============================================================================
+
+def create_task(
+    contextId: Optional[str] = None,
+    initial_message: Optional[A2AMessage] = None,
+    state: TaskState = TaskState.PENDING
+) -> Task:
+    """
+    Create a new A2A Task
+
+    Args:
+        contextId: Context ID to group related tasks (auto-generated if None)
+        initial_message: Initial message to add to history
+        state: Initial task state
+
+    Returns:
+        New Task instance
+    """
+    if contextId is None:
+        contextId = str(uuid.uuid4())
+
+    task = Task(
+        id=str(uuid.uuid4()),
+        contextId=contextId,
+        status=TaskStatus(state=state),
+        history=[] if initial_message else None
+    )
+
+    if initial_message:
+        task.add_message(initial_message)
+
+    return task
+
+
+def parse_message(data: Dict[str, Any]) -> A2AMessage:
+    """
+    Parse an A2A message from JSON data
+
+    Args:
+        data: JSON dictionary containing message data
+
+    Returns:
+        A2AMessage instance
+    """
+    parts = []
+    for part_data in data.get("parts", []):
+        kind = part_data.get("kind")
+        if kind == "text":
+            parts.append(TextPart(**part_data))
+        elif kind == "file":
+            parts.append(FilePart(**part_data))
+        elif kind == "data":
+            parts.append(DataPart(**part_data))
+
+    return A2AMessage(
+        role=data["role"],
+        parts=parts,
+        messageId=data.get("messageId", str(uuid.uuid4())),
+        contextId=data.get("contextId"),
+        taskId=data.get("taskId"),
+        referenceTaskIds=data.get("referenceTaskIds"),
+        extensions=data.get("extensions"),
+        metadata=data.get("metadata")
+    )
