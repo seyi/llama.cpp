@@ -1,0 +1,64 @@
+[tool.poetry]
+name = "llama-cpp-python-bindings"
+version = "0.1.0"
+description = "Official Python bindings for llama.cpp using ctypes"
+authors = ["GGML <ggml@ggml.ai>"]
+packages = [
+    {include = "llama_cpp"},
+]
+readme = "README.md"
+homepage = "https://ggml.ai"
+repository = "https://github.com/ggml-org/llama.cpp"
+keywords = ["ggml", "llama.cpp", "llm", "inference", "agents", "function-calling"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+[tool.poetry.dependencies]
+python = ">=3.8"
+requests = "^2.25"  # For agent examples
+
+[tool.poetry.dev-dependencies]
+pytest = "^7.0"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[project]
+name = "llama-cpp-python-bindings"
+version = "0.1.0"
+description = "Official Python bindings for llama.cpp using ctypes"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [
+    {name = "GGML", email = "ggml@ggml.ai"}
+]
+keywords = ["ggml", "llama.cpp", "llm", "inference", "agents", "function-calling"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "requests>=2.25.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+]
+
+[project.urls]
+Homepage = "https://ggml.ai"
+Repository = "https://github.com/ggml-org/llama.cpp"
+Documentation = "https://github.com/ggml-org/llama.cpp/tree/master/llama-py"

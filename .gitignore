@@ -49,6 +49,7 @@
 /debug
 /libllama.so
 /llama-*
+!/llama-py
 /vulkan-shaders-gen
 /rpc-server
 /out/
