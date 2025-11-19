@@ -452,3 +452,6 @@ if (BUILD_SHARED_LIBS)
         target_compile_definitions(${target} PUBLIC  GGML_SHARED)
     endforeach()
 endif()
+
+# Agent-to-Agent Protocol
+add_subdirectory(ggml-agent)
