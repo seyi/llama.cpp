@@ -10,9 +10,10 @@ This package provides ctypes-based Python bindings for the llama.cpp inference l
 
 - **Low-level C API access**: Direct ctypes bindings to `libllama.so`
 - **Pythonic interface**: High-level classes wrapping the C API
-- **Agent functionality**: Support for function calling / tool use
+- **Multi-provider agents**: Unified interface for OpenAI, Anthropic, Google, Moonshot, and local Llama
+- **Function calling**: Support for function calling / tool use across all providers
 - **Pattern consistency**: Follows the established `gguf-py` pattern
-- **Zero dependencies**: Only requires Python standard library
+- **Minimal dependencies**: Core library uses only Python standard library
 
 ## Installation
 
@@ -68,18 +69,26 @@ text = model.token_to_piece(next_token)
 print(text)
 ```
 
-### Agent / Function Calling
+### Multi-Provider Agent / Function Calling
 
-For agent functionality with function calling (tool use), use the llama-server's OpenAI-compatible API:
+The library provides a **unified interface** for function calling across multiple AI providers. Use the same code with OpenAI, Anthropic, Google, Moonshot, or local Llama!
+
+#### Supported Providers
+
+- **OpenAI**: GPT-3.5, GPT-4, GPT-4 Turbo, GPT-4.5, GPT-5
+- **Anthropic**: Claude 3 Opus, Sonnet, Haiku, Claude 3.5
+- **Google**: Gemini 1.5 Pro, Gemini 1.5 Flash, Gemini 2.0
+- **Moonshot**: Kimi (moonshot-v1-8k, v1-32k, v1-128k)
+- **Llama**: Local llama-server (requires `--jinja` flag)
+
+#### Quick Start
 
 ```python
-from llama_cpp.agent import LlamaAgent
+from llama_cpp.agents import OpenAIAgent, AnthropicAgent, GoogleAgent, MoonshotAgent, LlamaAgent, Tool
+import os
 
-# Create agent (requires llama-server running)
-agent = LlamaAgent(base_url="http://localhost:8080")
-
-# Define a tool
-weather_tool = agent.define_tool(
+# Create a tool (works with all providers)
+weather_tool = Tool(
     name="get_current_weather",
     description="Get the current weather in a given location",
     parameters={
@@ -91,21 +100,105 @@ weather_tool = agent.define_tool(
     }
 )
 
-# Chat with tool calling
-response = agent.chat(
-    message="What's the weather in Tokyo?",
-    tools=[weather_tool],
+# Use with OpenAI GPT-4
+agent = OpenAIAgent(
+    model="gpt-4-turbo",
+    api_key=os.getenv("OPENAI_API_KEY")
+)
+response = agent.chat("What's the weather in Tokyo?", tools=[weather_tool])
+
+# Or use with Claude
+agent = AnthropicAgent(
+    model="claude-3-5-sonnet-20241022",
+    api_key=os.getenv("ANTHROPIC_API_KEY")
+)
+response = agent.chat("What's the weather in Tokyo?", tools=[weather_tool])
+
+# Or use with Gemini
+agent = GoogleAgent(
+    model="gemini-1.5-pro",
+    api_key=os.getenv("GOOGLE_API_KEY")
+)
+response = agent.chat("What's the weather in Tokyo?", tools=[weather_tool])
+
+# Or use with Kimi
+agent = MoonshotAgent(
+    model="moonshot-v1-32k",
+    api_key=os.getenv("MOONSHOT_API_KEY")
+)
+response = agent.chat("What's the weather in Tokyo?", tools=[weather_tool])
+
+# Or use with local Llama (requires llama-server running)
+agent = LlamaAgent(base_url="http://localhost:8080")
+response = agent.chat("What's the weather in Tokyo?", tools=[weather_tool])
+```
+
+#### Configuration
+
+Set API keys via environment variables:
+
+```bash
+export OPENAI_API_KEY="sk-..."
+export ANTHROPIC_API_KEY="sk-ant-..."
+export GOOGLE_API_KEY="..."
+export MOONSHOT_API_KEY="..."
+```
+
+Or create a `.env` file (see `.env.example`).
+
+#### Complete Example with Tool Execution
+
+```python
+from llama_cpp.agents import OpenAIAgent, Tool
+import json
+import os
+
+# Create tools
+calculator_tool = Tool(
+    name="calculate",
+    description="Perform a mathematical calculation",
+    parameters={
+        "type": "object",
+        "properties": {
+            "expression": {"type": "string"}
+        },
+        "required": ["expression"]
+    }
 )
 
-# Check for tool calls
+# Initialize agent
+agent = OpenAIAgent(model="gpt-4-turbo", api_key=os.getenv("OPENAI_API_KEY"))
+
+# Chat with tools
+response = agent.chat(
+    message="What is 12345 * 67890?",
+    tools=[calculator_tool],
+)
+
+# Handle tool calls
 tool_calls = response["choices"][0]["message"].get("tool_calls")
 if tool_calls:
     for tool_call in tool_calls:
-        print(f"Tool: {tool_call['function']['name']}")
-        print(f"Args: {tool_call['function']['arguments']}")
+        func_name = tool_call["function"]["name"]
+        arguments = json.loads(tool_call["function"]["arguments"])
+
+        # Execute the tool (implement your logic here)
+        if func_name == "calculate":
+            result = eval(arguments["expression"])
+
+            # Add tool result to conversation
+            agent.add_tool_result(
+                tool_call_id=tool_call["id"],
+                tool_name=func_name,
+                result=str(result),
+            )
+
+    # Get final response
+    final_response = agent.chat()
+    print(final_response["choices"][0]["message"]["content"])
 ```
 
-See `examples/agent_function_calling.py` for a complete example.
+See `examples/multi_provider_agents.py` for complete examples with all providers.
 
 ## Architecture
 
