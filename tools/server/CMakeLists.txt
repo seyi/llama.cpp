@@ -16,6 +16,9 @@ set(TARGET_SRCS
     utils.hpp
     server-http.cpp
     server-http.h
+    agent-collab.cpp
+    agent-collab.h
+    agent-collab-routes.h
 )
 set(PUBLIC_ASSETS
     index.html.gz
